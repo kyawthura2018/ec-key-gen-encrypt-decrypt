@@ -16,19 +16,19 @@ import org.slf4j.LoggerFactory;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
-import javax.crypto.BadPaddingException;
-import javax.crypto.Cipher;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.NoSuchPaddingException;
+import javax.crypto.*;
 
 import java.security.*;
+import java.security.interfaces.ECPrivateKey;
 import java.security.spec.ECGenParameterSpec;
 import java.util.Base64;
 
-@Command(name = "greeting", mixinStandardHelpOptions = true)
-public class GreetingCommand implements Runnable {
+import static org.acme.BIP32KeyGenerator.*;
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(GreetingCommand.class);
+@Command(name = "greeting", mixinStandardHelpOptions = true)
+public class ECKeyTester implements Runnable {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ECKeyTester.class);
     private static final String ALGORITHM = "ECDSA";
     private static final String CURVE_NAME = "secp256k1";
     private static final String PROVIDER = "BC";
@@ -42,21 +42,49 @@ public class GreetingCommand implements Runnable {
     public void run() {
         System.out.printf("Hello %s, go go commando!\n", name);
         try {
-            // testECC();
-            KeyPair ecKeyPair =
-                    loadKeyPairFromSeed(importedSeed);
-            String text = "Hello World! Welcome to SECP Cryptography.";
-            LOGGER.info("Original TEXT = " + text);
-            String cipher = encrypt(text, ecKeyPair.getPublic());
-            LOGGER.info("Encrypted Data : "+cipher);
-             String original = decrypt(cipher, ecKeyPair.getPrivate());
-             LOGGER.info("Decrypted Data : " + original);
-            // generateKeyPair();
-//            loadKeyPair();
-//            generateKeyPairUsingWeb3j();
+//            KeyPair ecKeyPair =
+//                    loadKeyPairFromSeed(importedSeed);
+//            String text = "Hello World! Welcome to SECP Cryptography.";
+//            LOGGER.info("Original TEXT = " + text);
+//            String cipher = encrypt(text, ecKeyPair.getPublic());
+//            LOGGER.info("Encrypted Data : "+cipher);
+//             String original = decrypt(cipher, ecKeyPair.getPrivate());
+//             LOGGER.info("Decrypted Data : " + original);
+            bip21Tester();
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public static void bip21Tester() throws Exception {
+        byte[] seed = new byte[32];
+        new SecureRandom().nextBytes(seed);
+
+        // Convert the seed to a Base64 string
+        String base64Seed = Base64.getEncoder().encodeToString(seed);
+        System.out.println("Seed in Base64: " + base64Seed);
+
+        // Generate Master Key and Chain Code
+        KeyPair masterKeyPair = generateMasterKey(seed);
+        byte[] chainCode = generateChainCode(seed);
+        final var aesKey = generateSharedSecret(masterKeyPair.getPrivate(), masterKeyPair.getPublic());
+
+        String plaintext = "Hello, this is encrypted!";
+        String cipher = encryptWithBip32(plaintext, aesKey);
+        System.out.println("Encrypted: " + cipher);
+
+        // Decrypt data using the AES key
+        String decrypted = decryptWithBip32(cipher, aesKey);
+        System.out.println("Decrypted: " + decrypted);
+
+        // Print the master key and chain code
+        System.out.println("Master Private Key: " + ((ECPrivateKey) masterKeyPair.getPrivate()).getS().toString(16));
+        System.out.println("Master Public Key: " + bytesToHex(masterKeyPair.getPublic().getEncoded()));
+        System.out.println("Chain Code: " + bytesToHex(chainCode));
+
+        // Derive a child key
+        KeyPair childKey = deriveChildKey(masterKeyPair, chainCode, 0);
+        System.out.println("Child Private Key: " + ((ECPrivateKey) childKey.getPrivate()).getS().toString(16));
     }
 
     public static void loadKeyPair(){
@@ -103,40 +131,6 @@ public class GreetingCommand implements Runnable {
         return keyPairGenerator.generateKeyPair();
     }
 
-    public void testECC() throws NoSuchAlgorithmException, NoSuchProviderException, InvalidAlgorithmParameterException,
-            IllegalBlockSizeException, BadPaddingException, NoSuchPaddingException, InvalidKeyException {
-        Security.addProvider(new BouncyCastleProvider());
-
-        byte[] importedSeed = Base64.getDecoder()
-                .decode("j6kZHuu10wvxyc2sUnRlkVmI64aHuZvConhIX+7CuzgqV6TsH0d9KslpSVejWydqD+Sy1XnI6cpsAoOySEkF8Q==");
-
-        KeyPairGenerator ecKeyGen = KeyPairGenerator.getInstance("ECDSA", BouncyCastleProvider.PROVIDER_NAME);
-        new SecureRandom(importedSeed);
-        ecKeyGen.initialize(new ECGenParameterSpec("secp256k1"), SecureRandom.getInstance("EC"));
-
-        KeyPair ecKeyPair = ecKeyGen.generateKeyPair();
-        System.out.println("What is slow?");
-
-        System.out.println("Private Key: " + Hex.toHexString(ecKeyPair.getPrivate().getEncoded(), 0, 32));
-        System.out.println("Public Key: " + Hex.toHexString(ecKeyPair.getPublic().getEncoded(), 0, 32));
-
-        Cipher iesCipher = Cipher.getInstance("ECIESwithAES-CBC");
-        Cipher iesDecipher = Cipher.getInstance("ECIESwithAES-CBC");
-        iesCipher.init(Cipher.ENCRYPT_MODE, ecKeyPair.getPublic());
-
-        String message = "Hello World! This is my world do not distrust me.";
-
-        System.out.println("Original Message " + message);
-
-        byte[] ciphertext = iesCipher.doFinal(message.getBytes());
-        System.out.println(Hex.toHexString(ciphertext));
-
-        iesDecipher.init(Cipher.DECRYPT_MODE, ecKeyPair.getPrivate(), iesCipher.getParameters());
-        byte[] plaintext = iesDecipher.doFinal(ciphertext);
-
-        System.out.println(new String(plaintext));
-    }
-
     public static String encrypt(String data, PublicKey publicKey)
             throws NoSuchAlgorithmException, NoSuchProviderException,
             IllegalBlockSizeException, BadPaddingException, NoSuchPaddingException, InvalidKeyException {
@@ -179,13 +173,5 @@ public class GreetingCommand implements Runnable {
         LOGGER.info("[regenerateKeyPairFromSeed] Public Key: " + Hex.toHexString(ecKeyPair.getPublic().getEncoded()));
 
         return ecKeyPair;
-    }
-
-
-
-    public static byte[] obtainGeneratedSeed() {
-        // Replace this with your method of obtaining the previously generated seed
-        // (e.g., read from a file, retrieve from a database, etc.)
-        return new byte[] { /* Previously generated seed bytes */ };
     }
 }
