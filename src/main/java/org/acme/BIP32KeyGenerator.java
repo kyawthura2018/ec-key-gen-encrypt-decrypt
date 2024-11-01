@@ -11,7 +11,9 @@ import javax.crypto.spec.SecretKeySpec;
 import java.math.BigInteger;
 import java.security.*;
 import java.security.interfaces.ECPrivateKey;
+import java.security.interfaces.ECPublicKey;
 import java.security.spec.ECGenParameterSpec;
+import java.security.spec.ECPoint;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Map;
@@ -30,7 +32,7 @@ public class BIP32KeyGenerator {
 
         KeyPair masterKey = generateMasterKey(seed);
         String privateKey = ((ECPrivateKey) masterKey.getPrivate()).getS().toString(16);
-        String publicKey = bytesToHex(masterKey.getPublic().getEncoded());
+        String publicKey = convertPublicKeyToUncompressedHex(masterKey.getPublic());
         return Map.of(
                 "seed", base64Seed,
                 "privateKey", privateKey,
@@ -146,6 +148,43 @@ public class BIP32KeyGenerator {
 
         byte[] decrypted = cipher.doFinal(ciphertext);
         return new String(decrypted);
+    }
+
+    public static String convertPublicKeyToUncompressedHex(PublicKey publicKey) throws Exception {
+        if (!(publicKey instanceof ECPublicKey)) {
+            throw new IllegalArgumentException("The provided key is not an EC public key");
+        }
+
+        ECPublicKey ecPublicKey = (ECPublicKey) publicKey;
+        ECPoint ecPoint = ecPublicKey.getW();
+
+        // Get X and Y coordinates as byte arrays
+        byte[] xBytes = ecPoint.getAffineX().toByteArray();
+        byte[] yBytes = ecPoint.getAffineY().toByteArray();
+
+        // Ensure both coordinates are 32 bytes long (padding if necessary)
+        xBytes = padToLength(xBytes, 32);
+        yBytes = padToLength(yBytes, 32);
+
+        // Convert to hex strings
+        String xHex = bytesToHex(xBytes);
+        String yHex = bytesToHex(yBytes);
+
+        // Combine with '04' prefix
+        return "04" + xHex + yHex;
+    }
+
+    private static byte[] padToLength(byte[] bytes, int length) {
+        if (bytes.length == length) {
+            return bytes;
+        }
+        byte[] paddedBytes = new byte[length];
+        int srcPos = Math.max(0, bytes.length - length);
+        int destPos = Math.max(0, length - bytes.length);
+        int copyLength = Math.min(bytes.length, length);
+
+        System.arraycopy(bytes, srcPos, paddedBytes, destPos, copyLength);
+        return paddedBytes;
     }
 }
 

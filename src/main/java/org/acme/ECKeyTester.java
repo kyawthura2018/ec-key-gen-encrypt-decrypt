@@ -79,7 +79,7 @@ public class ECKeyTester implements Runnable {
 
         // Print the master key and chain code
         System.out.println("Master Private Key: " + ((ECPrivateKey) masterKeyPair.getPrivate()).getS().toString(16));
-        System.out.println("Master Public Key: " + bytesToHex(masterKeyPair.getPublic().getEncoded()));
+        System.out.println("Master Public Key: " + convertPublicKeyToUncompressedHex(masterKeyPair.getPublic()));
         System.out.println("Chain Code: " + bytesToHex(chainCode));
 
         // Derive a child key
