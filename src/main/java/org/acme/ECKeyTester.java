@@ -34,7 +34,7 @@ public class ECKeyTester implements Runnable {
     private static final String PROVIDER = "BC";
     private static final String ENCRYPTION_SCHEME = "ECIES";
     private static final byte[] importedSeed = Base64.getDecoder()
-                .decode("H5ype5qKmR/rmM013QdVQpvUvcdCp4Pl1+8pkm8N8JU4YlfKt+LNJYpnax34nm+yHqkuqBWJUe1ks857KR3qbw==");
+            .decode("H5ype5qKmR/rmM013QdVQpvUvcdCp4Pl1+8pkm8N8JU4YlfKt+LNJYpnax34nm+yHqkuqBWJUe1ks857KR3qbw==");
     @Parameters(paramLabel = "Kyawthura", defaultValue = "picocli", description = "Your name.")
     String name;
 
@@ -42,14 +42,28 @@ public class ECKeyTester implements Runnable {
     public void run() {
         System.out.printf("Hello %s, go go commando!\n", name);
         try {
+//            byte[] seed = Base64.getDecoder().decode("b2a+CGy4Ywg85tz2AnvDuHf5/NLt/bZDV6he3xE793Q=");
 //            KeyPair ecKeyPair =
-//                    loadKeyPairFromSeed(importedSeed);
+//                    loadKeyPairFromSeed(seed);
 //            String text = "Hello World! Welcome to SECP Cryptography.";
-//            LOGGER.info("Original TEXT = " + text);
+//            LOGGER.info("Original TEXT = {}", text);
 //            String cipher = encrypt(text, ecKeyPair.getPublic());
-//            LOGGER.info("Encrypted Data : "+cipher);
-//             String original = decrypt(cipher, ecKeyPair.getPrivate());
-//             LOGGER.info("Decrypted Data : " + original);
+//            LOGGER.info("Encrypted Data : {}", cipher);
+//            String original = decrypt(cipher, ecKeyPair.getPrivate());
+//            LOGGER.info("Decrypted Data : {}", original);
+//
+//            String privateKey = ((ECPrivateKey) ecKeyPair.getPrivate()).getS().toString(16);
+//            String publicKey = convertPublicKeyToUncompressedHex(ecKeyPair.getPublic());
+//            LOGGER.info("Private Key: {}", privateKey);
+//            LOGGER.info("Public Key: {}", publicKey);
+//
+//            // Example data and signature (replace with actual data and signature)
+//            String data = "Hello, this is the data to verify";
+//            byte[] signatureString = signData(data, ecKeyPair.getPrivate());
+//            LOGGER.info("Data: {}", data);
+//
+//            boolean isValid = verifySignatureV2(convertHexToPublicKey(publicKey), data, signatureString);
+//            LOGGER.info("Signature valid: {}", isValid);
             bip21Tester();
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -85,10 +99,21 @@ public class ECKeyTester implements Runnable {
         // Derive a child key
         KeyPair childKey = deriveChildKey(masterKeyPair, chainCode, 0);
         System.out.println("Child Private Key: " + ((ECPrivateKey) childKey.getPrivate()).getS().toString(16));
+
+        // Convert the hex string public key to ECPublicKey
+        PublicKey publicKey = convertHexToPublicKey(convertPublicKeyToUncompressedHex(masterKeyPair.getPublic()));
+
+        // Example data and signature (replace with actual data and signature)
+        String data = "Hello, this is the data to verify";
+        byte[] signature = signData(data, masterKeyPair.getPrivate());
+        System.out.println("Data: " + data);
+
+        boolean isValid = verifySignature(publicKey, data, signature);
+        System.out.println("Signature valid: " + isValid);
     }
 
-    public static void loadKeyPair(){
-        try{
+    public static void loadKeyPair() {
+        try {
             // Set up Bouncy Castle provider
             Security.addProvider(new BouncyCastleProvider());
 
@@ -103,7 +128,7 @@ public class ECKeyTester implements Runnable {
             // Print the private and public key values
             System.out.println("Private Key: " + privateKeyParams.getD());
             System.out.println("Public Key: " + publicKeyParams.getQ());
-        } catch (Exception e){
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }

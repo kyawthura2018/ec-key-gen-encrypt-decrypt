@@ -1,23 +1,27 @@
 package org.acme;
 
+import org.bouncycastle.crypto.macs.HMac;
 import org.bouncycastle.jce.ECNamedCurveTable;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.bouncycastle.jce.spec.ECNamedCurveParameterSpec;
+import org.bouncycastle.jce.spec.ECNamedCurveSpec;
 import org.bouncycastle.jce.spec.ECParameterSpec;
 import org.bouncycastle.jce.spec.ECPrivateKeySpec;
+import org.bouncycastle.math.ec.ECCurve;
 
 import javax.crypto.*;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.interfaces.ECPrivateKey;
 import java.security.interfaces.ECPublicKey;
-import java.security.spec.ECGenParameterSpec;
+import java.security.spec.*;
 import java.security.spec.ECPoint;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Map;
-import java.util.Objects;
 
 public class BIP32KeyGenerator {
     static {
@@ -76,22 +80,44 @@ public class BIP32KeyGenerator {
         return mac.doFinal(data);
     }
 
-    private static KeyPair generateKeyPair(BigInteger privateKeyInt) throws Exception {
-        // Retrieve EC parameters for secp256k1
-        ECParameterSpec ecSpec = ECNamedCurveTable.getParameterSpec("secp256k1");
+    public static KeyPair generateKeyPair(BigInteger privateKeyInt) throws Exception {
+        // Retrieve EC parameters for secp256k1 from BouncyCastle
+        ECParameterSpec bcSpec = ECNamedCurveTable.getParameterSpec("secp256k1");
 
-        // Create private key spec with the private key integer and EC parameters
-        ECPrivateKeySpec privateKeySpec = new ECPrivateKeySpec(privateKeyInt, ecSpec);
+        // Convert BouncyCastle ECParameterSpec to java.security.spec.ECParameterSpec
+        java.security.spec.ECParameterSpec ecSpec = new java.security.spec.ECParameterSpec(
+                new EllipticCurve(
+                        new java.security.spec.ECFieldFp(bcSpec.getCurve().getField().getCharacteristic()),
+                        bcSpec.getCurve().getA().toBigInteger(),
+                        bcSpec.getCurve().getB().toBigInteger()
+                ),
+                new java.security.spec.ECPoint(
+                        bcSpec.getG().getAffineXCoord().toBigInteger(),
+                        bcSpec.getG().getAffineYCoord().toBigInteger()
+                ),
+                bcSpec.getN(),
+                bcSpec.getH().intValue()
+        );
+
+        // Create the private key spec using the private key integer and EC parameters
+        ECPrivateKeySpec privateKeySpec = new ECPrivateKeySpec(privateKeyInt, bcSpec);
 
         // Initialize KeyFactory and generate private key
-        KeyFactory keyFactory = KeyFactory.getInstance("EC", "BC");
+        KeyFactory keyFactory = KeyFactory.getInstance("ECDSA", "BC");
         PrivateKey privateKey = keyFactory.generatePrivate(privateKeySpec);
 
-        // Generate the corresponding public key
-        ECGenParameterSpec ecGenSpec = new ECGenParameterSpec("secp256k1");
-        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("EC", "BC");
-        keyGen.initialize(ecGenSpec);
-        PublicKey publicKey = keyGen.generateKeyPair().getPublic();
+        // Calculate the public key point based on the private key
+        org.bouncycastle.math.ec.ECPoint bcPublicKeyPoint = bcSpec.getG().multiply(privateKeyInt).normalize();
+
+        // Convert BouncyCastle ECPoint to java.security.spec.ECPoint
+        java.security.spec.ECPoint w = new java.security.spec.ECPoint(
+                bcPublicKeyPoint.getAffineXCoord().toBigInteger(),
+                bcPublicKeyPoint.getAffineYCoord().toBigInteger()
+        );
+
+        // Create the public key spec
+        ECPublicKeySpec publicKeySpec = new ECPublicKeySpec(w, ecSpec);
+        PublicKey publicKey = keyFactory.generatePublic(publicKeySpec);
 
         return new KeyPair(publicKey, privateKey);
     }
@@ -185,6 +211,57 @@ public class BIP32KeyGenerator {
 
         System.arraycopy(bytes, srcPos, paddedBytes, destPos, copyLength);
         return paddedBytes;
+    }
+
+    public static byte[] signData(String data, PrivateKey privateKey) throws Exception {
+        // Initialize the signature object with ECDSA and SHA-256
+        Signature ecdsaSign = Signature.getInstance("SHA256withECDSA", "BC");
+        ecdsaSign.initSign(privateKey);
+
+        // Update the signature object with the data
+        ecdsaSign.update(data.getBytes("UTF-8"));
+
+        // Sign the data and return the Base64 encoded signature
+        byte[] signature = ecdsaSign.sign();
+        System.out.println("Signature: " + bytesToHex(signature));
+//        return Base64.getEncoder().encodeToString(signature);
+        return signature;
+    }
+
+    public static boolean verifySignature(PublicKey publicKey, String data, byte[] signature) throws Exception {
+        // Initialize the Signature instance with the correct algorithm for ECDSA
+        Signature ecdsaVerify = Signature.getInstance("SHA256withECDSA", "BC");
+        ecdsaVerify.initVerify(publicKey);
+        ecdsaVerify.update(data.getBytes(StandardCharsets.UTF_8));
+
+        // Verify the signature
+        return ecdsaVerify.verify(signature);
+    }
+
+    // Convert hex public key to ECPublicKey
+    public static PublicKey convertHexToPublicKey(String publicKey) throws Exception {
+        // Construct public key
+        BigInteger x = new BigInteger(publicKey.substring(2, 66), 16);
+        BigInteger y = new BigInteger(publicKey.substring(66), 16);
+        ECPoint pubPoint = new ECPoint(x, y);
+
+        // Get EC parameter specification for secp256k1
+        // Define EC parameter spec
+        ECNamedCurveParameterSpec bcSpec = ECNamedCurveTable.getParameterSpec("secp256k1");
+        ECCurve curve = bcSpec.getCurve();
+        EllipticCurve ellipticCurve = new EllipticCurve(
+                new ECFieldFp(curve.getField().getCharacteristic()),
+                curve.getA().toBigInteger(),
+                curve.getB().toBigInteger());
+        ECPoint ecPoint = new ECPoint(
+                bcSpec.getG().getAffineXCoord().toBigInteger(),
+                bcSpec.getG().getAffineYCoord().toBigInteger());
+        java.security.spec.ECParameterSpec ecParameters = new ECNamedCurveSpec("secp256k1", ellipticCurve, ecPoint, bcSpec.getN(), bcSpec.getH());
+
+        // Generate public key
+        ECPublicKeySpec pubSpec = new ECPublicKeySpec(pubPoint, ecParameters);
+        KeyFactory kf = KeyFactory.getInstance("EC");
+        return kf.generatePublic(pubSpec);
     }
 }
 
