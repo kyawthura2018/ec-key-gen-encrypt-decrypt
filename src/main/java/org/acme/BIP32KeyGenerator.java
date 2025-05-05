@@ -1,6 +1,5 @@
 package org.acme;
 
-import org.bouncycastle.crypto.macs.HMac;
 import org.bouncycastle.jce.ECNamedCurveTable;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.jce.spec.ECNamedCurveParameterSpec;
@@ -8,6 +7,8 @@ import org.bouncycastle.jce.spec.ECNamedCurveSpec;
 import org.bouncycastle.jce.spec.ECParameterSpec;
 import org.bouncycastle.jce.spec.ECPrivateKeySpec;
 import org.bouncycastle.math.ec.ECCurve;
+import org.web3j.crypto.Bip32ECKeyPair;
+import org.web3j.crypto.Credentials;
 
 import javax.crypto.*;
 import javax.crypto.spec.IvParameterSpec;
@@ -72,6 +73,30 @@ public class BIP32KeyGenerator {
         BigInteger leftInt = new BigInteger(1, il);
         BigInteger childPrivateKeyInt = ((ECPrivateKey) parentKey.getPrivate()).getS().add(leftInt).mod(new BigInteger("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16));
         return generateKeyPair(childPrivateKeyInt);
+    }
+
+    public static String generateWalletAddress(int index, String seed) throws Exception {
+        // Decode the Base64 seed
+        byte[] importedSeed = Base64.getDecoder().decode(seed);
+
+        // Generate master key pair (BIP-32)
+        Bip32ECKeyPair masterKeypair = Bip32ECKeyPair.generateKeyPair(importedSeed);
+
+        // Derivation path: m/44'/60'/0'/0/i
+        int[] path = {
+                44 | 0x80000000,  // purpose'
+                60 | 0x80000000,  // coin_type' (60 = ETH)
+                0 | 0x80000000,   // account'
+                0,                // change (0 = external)
+                index                // address_index
+        };
+
+        // Derive the child key
+        Bip32ECKeyPair childKey = Bip32ECKeyPair.deriveKeyPair(masterKeypair, path);
+
+        // Generate wallet/address
+        Credentials credentials = Credentials.create(childKey);
+        return credentials.getAddress();
     }
 
     private static byte[] hmacSHA512(byte[] key, byte[] data) throws Exception {

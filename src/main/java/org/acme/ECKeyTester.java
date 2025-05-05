@@ -33,6 +33,8 @@ public class ECKeyTester implements Runnable {
     private static final String CURVE_NAME = "secp256k1";
     private static final String PROVIDER = "BC";
     private static final String ENCRYPTION_SCHEME = "ECIES";
+
+    private static final String SEED = "H5ype5qKmR/rmM013QdVQpvUvcdCp4Pl1+8pkm8N8JU4YlfKt+LNJYpnax34nm+yHqkuqBWJUe1ks857KR3qbw==";
     private static final byte[] importedSeed = Base64.getDecoder()
             .decode("H5ype5qKmR/rmM013QdVQpvUvcdCp4Pl1+8pkm8N8JU4YlfKt+LNJYpnax34nm+yHqkuqBWJUe1ks857KR3qbw==");
     @Parameters(paramLabel = "Kyawthura", defaultValue = "picocli", description = "Your name.")
@@ -64,9 +66,61 @@ public class ECKeyTester implements Runnable {
 //
 //            boolean isValid = verifySignatureV2(convertHexToPublicKey(publicKey), data, signatureString);
 //            LOGGER.info("Signature valid: {}", isValid);
-            bip21Tester();
+//            bip21Tester();
+             generateHDWalletAddresses();
         } catch (Exception e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    public static void multiKeyTester() throws Exception {
+        byte[] seed = new byte[32];
+        new SecureRandom().nextBytes(seed);
+
+        // Convert the seed to a Base64 string
+        String base64Seed = Base64.getEncoder().encodeToString(seed);
+        System.out.println("Seed in Base64: " + base64Seed);
+
+        // Generate Master Key and Chain Code
+        KeyPair masterKeyPair = loadKeyPairFromExistingSeed();
+        byte[] chainCode = generateChainCode(seed);
+        final var aesKey = generateSharedSecret(masterKeyPair.getPrivate(), masterKeyPair.getPublic());
+
+        String plaintext = "Hello, this is encrypted!";
+        String cipher = encryptWithBip32(plaintext, aesKey);
+        System.out.println("Encrypted: " + cipher);
+
+        // Decrypt data using the AES key
+        String decrypted = decryptWithBip32(cipher, aesKey);
+        System.out.println("Decrypted: " + decrypted);
+
+        // Print the master key and chain code
+        System.out.println("Master Private Key: " + ((ECPrivateKey) masterKeyPair.getPrivate()).getS().toString(16));
+        System.out.println("Master Public Key: " + convertPublicKeyToUncompressedHex(masterKeyPair.getPublic()));
+        System.out.println("Chain Code: " + bytesToHex(chainCode));
+
+        // Derive a child key
+        KeyPair childKey = deriveChildKey(masterKeyPair, chainCode, 0);
+        System.out.println("Child Private Key: " + ((ECPrivateKey) childKey.getPrivate()).getS().toString(16));
+
+        // Convert the hex string public key to ECPublicKey
+        PublicKey publicKey = convertHexToPublicKey(convertPublicKeyToUncompressedHex(masterKeyPair.getPublic()));
+
+        // Example data and signature (replace with actual data and signature)
+        String data = "Hello, this is the data to verify";
+        byte[] signature = signData(data, masterKeyPair.getPrivate());
+        System.out.println("Data: " + data);
+
+        boolean isValid = verifySignature(publicKey, data, signature);
+        System.out.println("Signature valid: " + isValid);
+    }
+
+    public static void generateHDWalletAddresses() throws Exception {
+        // Loop through index 0 to 9 (generate 10 addresses)
+        for (int i = 0; i < 10; i++) {
+            // Generate a new key pair for each address
+            String address = BIP32KeyGenerator.generateWalletAddress(i, SEED);
+            System.out.println("Address " + i + ": " + address);
         }
     }
 
@@ -131,6 +185,20 @@ public class ECKeyTester implements Runnable {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public static KeyPair loadKeyPairFromExistingSeed() throws NoSuchAlgorithmException, NoSuchProviderException, InvalidAlgorithmParameterException {
+        // Set up Bouncy Castle provider
+        Security.addProvider(new BouncyCastleProvider());
+
+        // Create a secure random instance from the seed
+        SecureRandom secureRandom = new DeterministicKeyGenerator(importedSeed);
+
+        // Generate key pair from seed
+        KeyPairGenerator ecKeyGen = KeyPairGenerator.getInstance(ALGORITHM, BouncyCastleProvider.PROVIDER_NAME);
+        ecKeyGen.initialize(new ECGenParameterSpec(CURVE_NAME), secureRandom);
+
+        return ecKeyGen.generateKeyPair();
     }
 
     public static ECKeyGenerationParameters generateKeyGenerationParameters(byte[] seed) {
